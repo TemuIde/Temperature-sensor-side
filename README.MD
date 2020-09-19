@@ -1,6 +1,6 @@
 # Smart Body Temperature Scanner
 
-Repositori aplikasi sensor-side untuk proyek prototip Smart Body Temperature Scanner
+Repositori aplikasi sensor-side untuk proyek prototip Smart Body Temperature Scanner. 
 
 ## Important Note:
 
@@ -27,6 +27,7 @@ Aplikasi pada repositori ini dijalankan menggunakan library micropython, pada se
 4. [DEPRECATED] \past development\python\ : Folder ini berisi aplikasi dalam format python (.py). Berisi aplikasi yang dikembangkan menggunakan micropython, dan merupakan modul-modul fungsional terpisah.
 
 
+<!-- 
 What things you need to install the software and how to install them
 
 ```
@@ -103,4 +104,4 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 
 * Hat tip to anyone whose code was used
 * Inspiration
-* etc
+* etc -->

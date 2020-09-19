@@ -1,3 +1,9 @@
+'''
+Import module:
+Terdapat library yang khusus digunakan pada sensor M5Stack.
+Dalam pengembangan mungkin akan muncul notifikasi error 'Unable to Import' karena
+modul yang digunakan tidak tersedia pada library python umum.
+'''
 from m5stack import *
 from m5ui import *
 from uiflow import *
@@ -10,8 +16,12 @@ import math
 from easyIO import *
 import urequests
 import espnow
-# setScreenColor(0x222222)
 
+
+'''
+Global Variables:
+Pada aplikasi micropython untuk sensor M5Stack, penggunaan variable global harus dinyatakan secara eksplisit.
+'''
 MQTTConnection = False
 loop_count = None
 rtc = machine.RTC()
@@ -24,31 +34,33 @@ MQ_SVR = 'app.itsmyhealth.id'  # server url
 rfid0 = unit.get(unit.RFID, unit.PORTA)
 # str(rfid0.readBlockStr(1))
 sub_msg = None
+offline_records = {}  # Dictionary dengan key = index, value = message payload berisi data rekaman suhu yang direkam saat offline mode
+
+'''
+Configuration Function Group:
+
+1. configure():
+Memulai prosedur konfigurasi dengan memeriksa koneksi internet (WIFI) dan koneksi kepada server melalui MQTT
+
+2. setToStart():
+Setelah prosedur konfigurasi selesai, menampilkan status koneksi dan menginisiasi offline mode atau online mode sesuai status koneksi
+
+3. fun__server_response_(topic_data):
+Overriding function untuk menerima MQTT message dari server. Jika menerima message berarti server terhubung, dan status MQTTConnection diubah menjadi True
+Message dari server disimpanpada variabel global sub_msg, dimana message string akan diparse untuk mengambil informasi waktu dan tanggal.
+
+4. check_offline_records():
+Memeriksa apakah terdapat data tersimpan pada variabel dictionary offline_records. Fungsi ini di inisiasi jika pemeriksaan koneksi server dan internet berhasil.
+
+'''
 
 
-def publish_result(dataSuhu, MQ_SVR, isNormal, userName):
-    global m5mqtt, MAC_ADDR, rtc, mo_list, mqttSvr
-
-    # m5mqtt = M5mqtt('', MQ_SVR, 1883, 'Y1RmDk5xNj1C5KfyxRLG', None, 300)
-    # m5mqtt.start()
-    ts = rtc.datetime()
-    # format to '{:%d:%m:%Y:%H:%M:%S:%f:}'
-    ts = str(ts[2]) + ":" + str(mo_list[int(ts[1]-1)]) + ":" + str(ts[0]) + \
-        ":" + str(ts[4]) + ":" + str(ts[5]) + ":" + \
-        str(ts[6]) + ":" + str(ts[7])
-    msg = str('{"sensor_mac_addr": "') + str(MAC_ADDR) + str('", "time_stamp":"') + str(ts) + str(
-        '", "temperature": ') + str(dataSuhu) + str(', "isAlert":') + str(isNormal == False) + str('}')
-    # m5mqtt.publish(str('v1/devices/me/telemetry'), str(msg))
-    # m5mqtt.publish(str('v1/devices/me/telemetry'), str('{"temperature":29}'))
-
-    mqttSvr.publish(str(MQ_TOPIC), msg)
-    wait(2)
-
-    # mqttSvr = M5mqtt('', 'app.itsmyhealth.id', 1882, 'sens1', 'testing1', 300)
-    # mqttSvr.start()
-    mqttSvr.publish(str('/sensor/v1/server-connection'),
-                    str("{'isConnectRequest':true}"))
-    pass
+def check_offline_records():
+    global offline_records
+    if(len(offline_records) > 0):
+        return True
+    else:
+        return False
 
 
 def setToStart():
@@ -114,6 +126,52 @@ def configure():
     wait(1)
 
 
+'''
+General Function Group:
+1. check_offline_records():
+Memeriksa apakah terdapat data tersimpan pada variabel dictionary offline_records. Fungsi ini di inisiasi jika pemeriksaan koneksi server dan internet berhasil.
+
+2. check_result(result):
+Memeriksa apakah hasil perekaman suhu diatas batas normal
+
+3. publish_result(Record, MQ_SVR, isNormal):
+Menyusun hasil perekaman suhu kedalam message payload, dan mempublikasikan message payload sebagai MQTT Message
+
+4. offline_publisher(msg):
+Mempublikasikan pesan yang sebelumnya tersimpan sebagai offline record
+'''
+
+
+def offline_publisher(msg):
+    global m5mqtt, mqttSvr
+    mqttSvr.publish(str(MQ_TOPIC), msg)
+
+
+def publish_result(dataSuhu, MQ_SVR, isNormal, userName):
+    global m5mqtt, MAC_ADDR, rtc, mo_list, mqttSvr
+
+    # m5mqtt = M5mqtt('', MQ_SVR, 1883, 'Y1RmDk5xNj1C5KfyxRLG', None, 300)
+    # m5mqtt.start()
+    ts = rtc.datetime()
+    # format to '{:%d:%m:%Y:%H:%M:%S:%f:}'
+    ts = str(ts[2]) + ":" + str(mo_list[int(ts[1]-1)]) + ":" + str(ts[0]) + \
+        ":" + str(ts[4]) + ":" + str(ts[5]) + ":" + \
+        str(ts[6]) + ":" + str(ts[7])
+    msg = str('{"sensor_mac_addr": "') + str(MAC_ADDR) + str('", "time_stamp":"') + str(ts) + str(
+        '", "temperature": ') + str(dataSuhu) + str(', "isAlert":') + str(isNormal == False) + str('}')
+    # m5mqtt.publish(str('v1/devices/me/telemetry'), str(msg))
+    # m5mqtt.publish(str('v1/devices/me/telemetry'), str('{"temperature":29}'))
+
+    mqttSvr.publish(str(MQ_TOPIC), msg)
+    wait(2)
+
+    # mqttSvr = M5mqtt('', 'app.itsmyhealth.id', 1882, 'sens1', 'testing1', 300)
+    # mqttSvr.start()
+    mqttSvr.publish(str('/sensor/v1/server-connection'),
+                    str("{'isConnectRequest':true}"))
+    pass
+
+
 def check_result(result):
     isNormal = True
     # normal
@@ -126,6 +184,10 @@ def check_result(result):
     return isNormal
 
 
+'''
+Configuration process:
+Bagian ini dijalankan saat memulai proses konfigurasi.
+'''
 mqttSvr = M5mqtt('', 'app.itsmyhealth.id', 1882, 'sens1', 'testing1', 300)
 mqttSvr.subscribe(str('/server-response'), fun__server_response_)
 mqttSvr.start()
@@ -155,7 +217,6 @@ setToStart()
 wait(1)
 
 
-# MAIN PROCESS
 setScreenColor(0x222222)
 ncir0 = unit.get(unit.NCIR, unit.PORTA)
 rfid0 = unit.get(unit.RFID, unit.PORTA)
@@ -181,8 +242,14 @@ isNormal = None
 speaker.setVolume(1)
 minTemp = 100
 maxTemp = 10
+
+
+'''
+Main loop:
+Bagian utama proses
+'''
 while True:
-    if rfid0.isCardOn():
+    if rfid0.isCardOn():  # Trigger perekaman suhu dengan deteksi RFID card
         userName = str(rfid0.readBlockStr(1))
         dataName.setText(str(rfid0.readBlockStr(1)))
         lblWelcome.setPosition(x=20)
@@ -216,8 +283,25 @@ while True:
             speaker.sing(889, 2)
 
         # START PUBLISH SEQUENCE
-        publish_result(dataSuhu, MQ_SVR, isNormal, userName)
-        wait(5)
+        if(MQTTConnection and wifiCfg.wlan_sta.isconnected()):
+            if(check_offline_records() == True):
+                # label0 = M5TextBox(60, 0, "Uploading offline records",
+                #                    lcd.FONT_DefaultSmall, 0x275ea8, rotate=90)
+                # wait(3)
+                for i in offline_records.values():
+                    offline_publisher(i)
+                offline_records = {}
+            publish_result(dataSuhu, MQ_SVR, isNormal, userName)
+            wait(5)
+        else:
+            ts = "OFFLINE MODE"
+            msg = str('{"sensor_mac_addr": "') + str(MAC_ADDR) + str('", "time_stamp":"') + str(ts) + str(
+                '", "temperature": ') + str(dataSuhu) + str(', "isAlert":') + str(isNormal == False) + str('}')
+
+            offline_index = len(offline_records)
+            offline_records[offline_index] = msg
+            wait(2)
+
     else:
         lblWelcome.setPosition(x=25)
         lblWelcome.setColor(0xffffff)

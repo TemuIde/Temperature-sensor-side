@@ -1,3 +1,10 @@
+'''
+Import module:
+Terdapat library yang khusus digunakan pada sensor M5Stack.
+Dalam pengembangan mungkin akan muncul notifikasi error 'Unable to Import' karena
+modul yang digunakan tidak tersedia pada library python umum.
+'''
+
 from numbers import Number
 from m5stack import *
 from m5ui import *
@@ -13,26 +20,40 @@ import urequests
 import espnow
 
 
-rtc = machine.RTC()
+'''
+Global Variables:
+Pada aplikasi micropython untuk sensor M5Stack, penggunaan variable global harus dinyatakan secara eksplisit.
+'''
+rtc = machine.RTC()  # real time clock
 mo_list = ["Jan", "Feb", "Mar", "Apr", "May",
-           "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-MQTTConnection = False
-loop_count = None
-sub_msg = None
-
-
-# ===========
-ncir0 = unit.get(unit.NCIR, unit.PORTA)
+           "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]  # list nama-nama bulan
+MQTTConnection = False  # indikator koneksi ke MQTT Server
+loop_count = None  # counter penghitung jumlah perekaman data
+sub_msg = None  # subscribed message dari server akan disimpan pada variabel ini
+ncir0 = unit.get(unit.NCIR, unit.PORTA)  # sensor suhu
 #ncir0 = hat.get(hat.NCIR)
-hat_spk0 = hat.get(hat.SPEAKER)
-Record = None
-MAC_ADDR = espnow.get_mac_addr()
-# MQ_TOPIC = "v1/devices/me/telemetry"
-MQ_TOPIC = "/sensor/v1/" + str(MAC_ADDR)
+hat_spk0 = hat.get(hat.SPEAKER)  # extension speaker
+Record = None  # hasil perekaman suhu
+MAC_ADDR = espnow.get_mac_addr()  # mac address sensor
+MQ_TOPIC = "/sensor/v1/" + str(MAC_ADDR)  # topic message MQTT
 MQ_SVR = 'app.itsmyhealth.id'  # server url
 hat_spk0.setVolume(0)  # speaker volume
-offline_records = {}
-# ===>> Config function group start
+offline_records = {}  # Dictionary dengan key = index, value = message payload berisi data rekaman suhu yang direkam saat offline mode
+
+
+'''
+Configuration Function Group:
+
+1. configure():
+Memulai prosedur konfigurasi dengan memeriksa koneksi internet (WIFI) dan koneksi kepada server melalui MQTT
+
+2. setToStart():
+Setelah prosedur konfigurasi selesai, menampilkan status koneksi dan menginisiasi offline mode atau online mode sesuai status koneksi
+
+3. fun__server_response_(topic_data):
+Overriding function untuk menerima MQTT message dari server. Jika menerima message berarti server terhubung, dan status MQTTConnection diubah menjadi True
+Message dari server disimpanpada variabel global sub_msg, dimana message string akan diparse untuk mengambil informasi waktu dan tanggal.
+'''
 
 
 def configure():
@@ -82,23 +103,40 @@ def fun__server_response_(topic_data):
     MQTTConnection = True
     sub_msg = topic_data
     pass
-# ===>> Config function group end
 
 
+'''
+General Function Group:
+1. check_offline_records():
+Memeriksa apakah terdapat data tersimpan pada variabel dictionary offline_records. Fungsi ini di inisiasi jika pemeriksaan koneksi server dan internet berhasil.
+
+2. sound_beep(isNormal):
+Menerima parameter boolean isNormal dan menghasilkan suara melalui buzzer. Hanya jika yang digunakan extension buzzer (defaultnya yang digunakan = speaker)
+
+3. sound_spk(vol, hertz):
+Menerima parameter volume dan frekuensi dan menghasilkan suara melalui speaker.
+
+4. record_temp():
+Menampilkan display pengukuran dan merekam suhu dari sensor.
+
+5. check_result(result):
+Memeriksa apakah hasil perekaman suhu diatas batas normal
+
+6. publish_result(Record, MQ_SVR, isNormal):
+Menyusun hasil perekaman suhu kedalam message payload, dan mempublikasikan message payload sebagai MQTT Message
+
+7. offline_publisher(msg):
+Mempublikasikan pesan yang sebelumnya tersimpan sebagai offline record
+'''
 # ===>> offline mode function group start
+
+
 def check_offline_records():
     global offline_records
     if(len(offline_records) > 0):
         return True
     else:
         return False
-
-# ===>> offline mode function group end
-
-
-'''
-# ===>> GENERAL FUNCTION GROUP START
-'''
 
 
 # sound buzzer
@@ -140,7 +178,7 @@ def record_temp():
     label2 = M5TextBox(50, 20, "Mengukur ...",
                        lcd.FONT_DejaVu18, 0x275ea8, rotate=90)
     wait_ms(1500)
-    current_temp = 2.2 + ncir0.temperature  # kenapa ditambah 2.2 ni
+    current_temp = 2.2 + ncir0.temperature  # Penambahan offset sebesar 2.2
     return current_temp
 
 
@@ -161,8 +199,6 @@ def check_result(result):
 def publish_result(Record, MQ_SVR, isNormal):
     global m5mqtt, MAC_ADDR, rtc, mo_list, mqttSvr
 
-    # m5mqtt = M5mqtt('', MQ_SVR, 1883, 'Y1RmDk5xNj1C5KfyxRLG', None, 300)
-    # m5mqtt.start()
     ts = rtc.datetime()
     # format to '{:%d:%m:%Y:%H:%M:%S:%f:}'
     ts = str(ts[2]) + ":" + str(mo_list[int(ts[1]-1)]) + ":" + str(ts[0]) + \
@@ -170,8 +206,6 @@ def publish_result(Record, MQ_SVR, isNormal):
         str(ts[6]) + ":" + str(ts[7])
     msg = str('{"sensor_mac_addr": "') + str(MAC_ADDR) + str('", "time_stamp":"') + str(ts) + str(
         '", "temperature": ') + str(Record) + str(', "isAlert":') + str(isNormal == False) + str('}')
-    # m5mqtt.publish(str('v1/devices/me/telemetry'), str(msg))
-    # m5mqtt.publish(str('v1/devices/me/telemetry'), str('{"temperature":29}'))
 
     mqttSvr.publish(str(MQ_TOPIC), msg)
     wait(2)
@@ -186,6 +220,16 @@ def publish_result(Record, MQ_SVR, isNormal):
 def offline_publisher(msg):
     global m5mqtt, mqttSvr
     mqttSvr.publish(str(MQ_TOPIC), msg)
+
+
+'''
+Event Handlers:
+1. event_handler():
+Adalah fungsi pererekaman suhu pada situasi online. 
+
+2. offline_handler():
+Digunakan sebagai event handler saat tidak terdapat koneksi ke internet atau ke server.
+'''
 
 
 def event_handler():
@@ -252,35 +296,28 @@ def offline_handler():
                        lcd.FONT_DejaVu18, 0x275ea8, rotate=90)
     offlineLabel.setText("offline mode-don't turn off ")
 
-    # for i in range(4):
-    #     sound_spk(10, 262)
-    #     wait(0.2)
 
-# ===>> GENERAL FUNCTION GROUP END
-
-
-# ===============INITIAL CONFIG ================
-
+'''
+Configuration process:
+Bagian ini dijalankan saat memulai proses konfigurasi.
+'''
 setScreenColor(0x111111)
-# m5mqtt = M5mqtt('', MQ_SVR, 1883, 'Y1RmDk5xNj1C5KfyxRLG', 'None', 300)
-# m5mqtt.start()
 mqttSvr = M5mqtt('', 'app.itsmyhealth.id', 1882, 'sens1', 'testing1', 300)
 label0 = M5TextBox(52, 9, "Text", lcd.FONT_DefaultSmall, 0xFFFFFF, rotate=90)
 label1 = M5TextBox(74, 6, "Text1", lcd.FONT_Default, 0xFFFFFF, rotate=90)
 label2 = M5TextBox(34, 7, "Text2", lcd.FONT_DefaultSmall, 0xFFFFFF, rotate=90)
 label3 = M5TextBox(17, 8, "text3", lcd.FONT_DefaultSmall, 0xFFFFFF, rotate=90)
-
 mqttSvr.subscribe(str('/server-response'), fun__server_response_)
 setScreenColor(0x339999)
 mqttSvr.start()
-
-
 configure()
+
 loop_count = 0
+# Jika koneksi ke server MQTT belum tersambung loop ini dijalankan untuk memeriksa koneksi.
 while not MQTTConnection:
     configure()
     loop_count = (loop_count if isinstance(loop_count, Number) else 0) + 1
-    if loop_count > 10:
+    if loop_count > 10:  # Jika pada pemeriksaan kesepuluh koneksi belum terhubung, pemeriksaan dihentikan dan akan memulai offline mode
         break
 configure()
 wait(1)
@@ -288,13 +325,14 @@ setToStart()
 wait(1)
 # ======== CONFIG END========
 
-# ========= Start Process ======
+
 '''
-Setup values
+Main loop:
+Bagian utama proses
 '''
-# wifiCfg.wlan_sta.isconnected() ;;; MQTTConnection
 counter = 0
 while True:
+    # main loop yang dijalankan pada mode online
     if(MQTTConnection and wifiCfg.wlan_sta.isconnected()):
         if(check_offline_records() == True):
             # label0 = M5TextBox(60, 0, "Uploading offline records",
@@ -314,9 +352,10 @@ while True:
                            lcd.FONT_DejaVu18, 0x275ea8, rotate=90)
         counter = (counter if isinstance(counter, Number) else 0) + 1
         # start
-        btnA.wasPressed(event_handler)  # define event handler
+        # pemanggilan event handler online mode jika button A ditekan
+        btnA.wasPressed(event_handler)
         wait(1)
-    else:
+    else:  # main loop yang dijalankan pada offline mode
         # setScreenColor(0xff0000)
         offlineLabel = M5TextBox(
             15, 4, "offline mode-don't turn off ", lcd.FONT_DefaultSmall, 0xda1d1d, rotate=90)
@@ -332,14 +371,11 @@ while True:
         offlineLabel.setText("offline mode-don't turn off ")
 
         counter = (counter if isinstance(counter, Number) else 0) + 1
-        btnA.wasPressed(offline_handler)  # define event handler
-
+        # event handler offline mode yang dijalankan
+        btnA.wasPressed(offline_handler)
         wait(1)
-    if counter == 5 and MQTTConnection:
+    if counter == 5 and MQTTConnection:  # pada perekaman ke 5, dilakukan pengecekan koneksi server
         MQTTConnection = False
-        # mqttSvr = M5mqtt('', 'app.itsmyhealth.id', 1882, 'sens1', 'testing1', 300)
-        # mqttSvr.subscribe(str('/server-response'), fun__server_response_)
-        # mqttSvr.start()
         mqttSvr.publish(str('/sensor/v1/server-connection'),
                         str("{'isConnectRequest':true}"))
         # wifi_status = wifiCfg.wlan_sta.isconnected()
